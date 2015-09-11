@@ -156,11 +156,11 @@ func (c *Connection) isClosed() bool {
 // This method us safe to call from multiple goroutines simultaneously.
 func (c *Connection) Write(payload []byte) error {
 	if c.isClosed() {
-		return fmt.Errorf("connection closed", c.User)
+		return fmt.Errorf("connection closed %s", c.User)
 	}
 	n := len(payload)
 	if n < 2 || n > 1024 {
-		return fmt.Errorf("invalid message size:", n)
+		return fmt.Errorf("invalid message size %d", n)
 	}
 	if payload[n-1] != '\n' {
 		return fmt.Errorf("missing message delimiter")
