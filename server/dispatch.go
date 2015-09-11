@@ -44,50 +44,42 @@ func NewDispatcher(topics *TopicManager, connections *ConnectionManager) *Dispat
 }
 
 // Dispatch parses req, reacts appropriately and sends a response to c.
-func (d *Dispatcher) Dispatch(c *Connection, s []byte) {
-	// strip LF delim for command parser but keep it for forwarding
-	cmd := ssmp.NewCommand(s[0 : len(s)-1])
-	verb, err := ssmp.VerbField(cmd)
-	if err != nil {
-		fmt.Println("invalid verb:", err)
-		c.Write(respBadRequest)
-		return
+func (d *Dispatcher) Dispatch(c *Connection, verb []byte) bool {
+	if ssmp.Equal(verb, ssmp.LOGIN) {
+		fmt.Println("attempted re-login")
+		c.Write(respNotAllowed)
+		return false
 	}
 	h := d.handlers[string(verb)]
 	if h.h == nil {
-		if ssmp.Equal(verb, ssmp.LOGIN) {
-			fmt.Println("attempted re-login")
-			c.Write(respNotAllowed)
-		} else {
-			fmt.Println("unsupported command:", verb)
-			c.Write(respNotImplemented)
+		// discard unknown command
+		if _, err := c.r.DecodeCompat(); err != nil {
+			return false
 		}
-		return
+		fmt.Println("unsupported command:", verb)
+		c.Write(respNotImplemented)
+		return true
 	}
+	var err error
 	var to []byte
 	var payload []byte
 	if (h.f & fieldTo) != 0 {
-		if to, err = ssmp.IdField(cmd); err != nil {
-			c.Write(respBadRequest)
-			return
+		if to, err = c.r.DecodeId(); err != nil {
+			return false
 		}
 	}
 	if (h.f & fieldPayload) != 0 {
-		extract := ssmp.PayloadField
-		if (h.f & fieldOption) == fieldOption {
-			extract = ssmp.OptionField
-		}
-		if payload, err = extract(cmd); err != nil {
-			c.Write(respBadRequest)
-			return
+		if (h.f&fieldOption) == fieldOption && c.r.AtEnd() {
+			payload = []byte{}
+		} else if payload, err = c.r.DecodePayload(); err != nil {
+			return false
 		}
 	}
-	if !cmd.AtEnd() {
-		fmt.Println("trailing data:", cmd.Trailing())
-		c.Write(respBadRequest)
-		return
+	if !c.r.AtEnd() {
+		return false
 	}
-	h.h(c, to, payload, s, d)
+	h.h(c, to, payload, c.r.RawMessage(), d)
+	return true
 }
 
 func (d *Dispatcher) GetConnection(user []byte) *Connection {

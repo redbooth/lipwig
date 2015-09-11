@@ -36,6 +36,9 @@ const Anonymous = "."
 
 // IsValidIdentifier reports whether s is a valid SSMP IDENTIFIER field.
 func IsValidIdentifier(s string) bool {
+	if len(s) > MaxIdentifierLength {
+		return false
+	}
 	for i := 0; i < len(s); i++ {
 		if !ID_CHARSET.Contains(s[i]) {
 			return false

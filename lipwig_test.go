@@ -167,6 +167,30 @@ func TestClient_should_unicast_self(t *testing.T) {
 	w.Wait()
 }
 
+func TestClient_should_unicast_self_binary(t *testing.T) {
+	defer NewServer().Start().Stop()
+	c := NewLoggedInClient("foo")
+	defer c.Close()
+
+	w := c.expect(t, client.Event{
+		Name:    []byte(ssmp.UCAST),
+		From:    []byte("foo"),
+		To:      []byte("foo"),
+		Payload: []byte("hello"),
+	})
+
+	expect(t, ssmp.CodeOk, u(c.Ucast("foo", string([]byte{0, 4})+"hello")))
+	w.Wait()
+}
+
+func TestClient_should_reject_unicast_binary_short(t *testing.T) {
+	defer NewServer().Start().Stop()
+	c := NewLoggedInClient("foo")
+	defer c.Close()
+
+	expect(t, ssmp.CodeBadRequest, u(c.Ucast("foo", string([]byte{0, 3})+"hello")))
+}
+
 func TestClient_should_unicast_other(t *testing.T) {
 	defer NewServer().Start().Stop()
 	foo := NewLoggedInClient("foo")

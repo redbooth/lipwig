@@ -4,7 +4,6 @@
 package server
 
 import (
-	"bufio"
 	"fmt"
 	"github.com/aerofs/lipwig/ssmp"
 	"io"
@@ -17,7 +16,7 @@ import (
 // a successful LOGIN.
 type Connection struct {
 	c net.Conn
-	r *bufio.Reader
+	r *ssmp.Decoder
 
 	User string
 
@@ -46,32 +45,30 @@ var (
 // errUnauthorized is returned if the authenticator doesn't accept the provided
 // credentials.
 func NewConnection(c net.Conn, a Authenticator, d *Dispatcher) (*Connection, error) {
-	r := bufio.NewReaderSize(c, 1024)
+	r := ssmp.NewDecoder(c)
 	c.SetReadDeadline(time.Now().Add(10 * time.Second))
-	l, err := r.ReadSlice('\n')
-	if err != nil {
-		return nil, err
-	}
-	// strip LF delimiter
-	l = l[0 : len(l)-1]
-
-	cmd := ssmp.NewCommand(l)
-	verb, err := ssmp.VerbField(cmd)
+	verb, err := r.DecodeVerb()
 	if err != nil || !ssmp.Equal(verb, ssmp.LOGIN) {
 		return nil, ErrInvalidLogin
 	}
-	user, err := ssmp.IdField(cmd)
+	user, err := r.DecodeId()
 	if err != nil {
 		return nil, ErrInvalidLogin
 	}
-	scheme, err := ssmp.IdField(cmd)
+	scheme, err := r.DecodeId()
 	if err != nil {
 		return nil, ErrInvalidLogin
 	}
-	cred := cmd.Trailing()
+	var cred []byte
+	if r.AtEnd() {
+		cred = []byte{}
+	} else if cred, err = r.DecodePayload(); err != nil {
+		return nil, ErrInvalidLogin
+	}
 	if !a.Auth(c, user, scheme, cred) {
 		return nil, ErrUnauthorized
 	}
+	r.Reset()
 	cc := &Connection{
 		c:    c,
 		r:    r,
@@ -121,12 +118,9 @@ var ping []byte = []byte(respEvent + ". " + ssmp.PING + "\n")
 func (c *Connection) readLoop(d *Dispatcher) {
 	defer d.RemoveConnection(c)
 	idle := false
-	for {
-		if c.isClosed() {
-			break
-		}
+	for !c.isClosed() {
 		c.c.SetReadDeadline(time.Now().Add(30 * time.Second))
-		l, err := c.r.ReadSlice('\n')
+		v, err := c.r.DecodeVerb()
 		if c.isClosed() {
 			break
 		}
@@ -143,7 +137,12 @@ func (c *Connection) readLoop(d *Dispatcher) {
 			break
 		}
 		idle = false
-		d.Dispatch(c, l)
+		if d.Dispatch(c, v) {
+			c.r.Reset()
+		} else {
+			c.Write(respBadRequest)
+			c.Close()
+		}
 	}
 }
 

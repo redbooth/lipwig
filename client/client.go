@@ -4,7 +4,6 @@
 package client
 
 import (
-	"bufio"
 	"bytes"
 	"fmt"
 	"github.com/aerofs/lipwig/ssmp"
@@ -147,7 +146,11 @@ func (c *client) SetEventHandler(h EventHandler) {
 }
 
 func (c *client) Login(user string, scheme string, cred string) (Response, error) {
-	return c.request(ssmp.LOGIN, user, scheme+" "+cred)
+	payload := scheme
+	if len(cred) > 0 {
+		payload = scheme + " " + cred
+	}
+	return c.request(ssmp.LOGIN, user, payload)
 }
 
 func (c *client) Subscribe(topic string) (Response, error) {
@@ -180,12 +183,23 @@ func (c *client) request(cmd string, to string, payload string) (Response, error
 		if !ssmp.IsValidIdentifier(to) {
 			return r, ErrInvalidIdentifier
 		}
-		// quick size check, before allocating buffer
-		if len(cmd)+len(to)+len(payload) > 1022 {
-			return r, ErrRequestTooLarge
-		}
-		if strings.Contains(payload, "\n") {
-			return r, ErrInvalidPayload
+		n := len(payload)
+		if n > 0 {
+			b := payload[0]
+			if b >= 0 && b <= 3 {
+				// binary payload: length prefix must match
+				if n < 3 {
+					return r, ErrInvalidPayload
+				}
+				sz := 3 + (int(b) << 8) + (int(payload[1]) & 0xff)
+				if len(payload) != sz {
+					return r, ErrInvalidPayload
+				}
+			} else if n > 1024 {
+				return r, ErrRequestTooLarge
+			} else if strings.ContainsAny(payload, "\x00\x01\x02\x03\n") {
+				return r, ErrInvalidPayload
+			}
 		}
 	}
 	buf := bufPool.Get().(*bytes.Buffer)
@@ -200,9 +214,6 @@ func (c *client) request(cmd string, to string, payload string) (Response, error
 		buf.WriteString(payload)
 	}
 	buf.WriteByte('\n')
-	if c.RequestChecks && buf.Len() > 1024 {
-		return r, ErrRequestTooLarge
-	}
 	_, err := c.c.Write(buf.Bytes())
 	bufPool.Put(buf)
 	if err != nil {
@@ -224,10 +235,10 @@ func (c *client) readLoop() {
 	defer close(c.responses)
 
 	idle := false
-	r := bufio.NewReaderSize(c.c, 1024)
+	r := ssmp.NewDecoder(c.c)
 	for {
 		c.c.SetReadDeadline(time.Now().Add(30 * time.Second))
-		l, err := r.ReadSlice('\n')
+		code, err := r.DecodeCode()
 		if err != nil {
 			if nerr, ok := err.(net.Error); ok && nerr.Timeout() && !idle {
 				idle = true
@@ -244,29 +255,13 @@ func (c *client) readLoop() {
 			break
 		}
 		idle = false
-		// strip LF delimiter
-		l = l[0 : len(l)-1]
-		if len(l) < 3 || (len(l) > 3 && l[3] != ' ') {
-			if err != io.EOF {
-				fmt.Printf("Client[%p] Invalid server message: %v\n", c, err)
-			}
-			break
-		}
-		code := responseCode(l)
-		if code < 0 {
-			fmt.Printf("Client[%p] Invalid server message: %v\n", c, l)
-			break
-		}
-		var payload []byte
-		if len(l) >= 4 {
-			payload = l[4:]
-		}
 		if code == ssmp.CodeEvent {
-			ev, err := ParseEvent(payload)
+			ev, err := parseEvent(r)
 			if err != nil {
 				fmt.Printf("Client[%p] Invalid event: %v\n", c, err)
 				break
 			}
+			r.Reset()
 			if ssmp.Equal(ev.Name, ssmp.PING) {
 				c.c.Write(pong)
 				continue
@@ -281,21 +276,65 @@ func (c *client) readLoop() {
 			h.HandleEvent(ev)
 			continue
 		}
+		var payload string
+		if !r.AtEnd() {
+			d, err := r.DecodePayload()
+			if err != nil {
+				fmt.Printf("Client[%p] Invalid response: %v\n", c, err)
+				break
+			}
+			payload = string(d)
+		}
+		r.Reset()
 		c.responses <- Response{
 			Code:    code,
-			Message: string(payload),
+			Message: payload,
 		}
 	}
 	c.c.Close()
 }
 
-func responseCode(s []byte) int {
-	n := 0
-	for i := 0; i < 3; i++ {
-		if s[i] < '0' || s[i] > '9' {
-			return -1
-		}
-		n = 10*n + int(s[i]-'0')
+func parseEvent(r *ssmp.Decoder) (Event, error) {
+	var e Event
+	from, err := r.DecodeId()
+	if err != nil {
+		return e, err
 	}
-	return n
+	e.From = from
+	ev, err := r.DecodeVerb()
+	if err != nil {
+		return e, err
+	}
+	fields := events[string(ev)]
+	if fields == 0 {
+		return e, ErrInvalidEvent
+	}
+	e.Name = ev
+	if fields == noFields {
+		return e, nil
+	}
+	if (fields & fieldTo) != 0 {
+		to, err := r.DecodeId()
+		if err != nil {
+			return e, err
+		}
+		e.To = to
+	}
+	if (fields & fieldOption) != 0 {
+		e.Payload = []byte{}
+		if !r.AtEnd() {
+			payload, err := r.DecodePayload()
+			if err != nil {
+				return e, err
+			}
+			e.Payload = payload
+		}
+	} else if (fields & fieldPayload) != 0 {
+		payload, err := r.DecodePayload()
+		if err != nil {
+			return e, err
+		}
+		e.Payload = payload
+	}
+	return e, nil
 }
