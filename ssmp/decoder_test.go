@@ -203,11 +203,11 @@ func TestDecoder_should_decode_text_payload_split(t *testing.T) {
 	assert.True(t, r.AtEnd())
 }
 
-func TestDecoder_should_reject_text_payload_0_3(t *testing.T) {
+func TestDecoder_should_decode_text_payload_0_3(t *testing.T) {
 	for i := 0; i <= 3; i++ {
 		r := newReader(io.EOF, "hello "+string([]byte{byte(i)})+"\n")
-		expectError(t, ErrInvalidMessage, u(r.DecodePayload()))
-		assert.False(t, r.AtEnd())
+		expectData(t, "hello "+string([]byte{byte(i)}), u(r.DecodePayload()))
+		assert.True(t, r.AtEnd())
 	}
 }
 

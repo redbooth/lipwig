@@ -219,8 +219,6 @@ func (d *Decoder) decodeTextPayload() ([]byte, error) {
 			}
 			d.r += n
 			return d.buf[d.r-n : d.r-1], nil
-		} else if c >= 0 && c <= 3 {
-			break
 		}
 	}
 	return nil, ErrInvalidMessage
