@@ -158,7 +158,7 @@ func (c *Connection) Write(payload []byte) error {
 		return fmt.Errorf("connection closed %s", c.User)
 	}
 	n := len(payload)
-	if n < 2 || n > 1024 {
+	if n < 2 {
 		return fmt.Errorf("invalid message size %d", n)
 	}
 	if payload[n-1] != '\n' {
