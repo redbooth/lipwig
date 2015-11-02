@@ -56,7 +56,7 @@ func (d *Dispatcher) Dispatch(c *Connection, verb []byte) bool {
 		if _, err := c.r.DecodeCompat(); err != nil {
 			return false
 		}
-		fmt.Println("unsupported command:", verb)
+		fmt.Println("unsupported command:", string(verb))
 		c.Write(respNotImplemented)
 		return true
 	}
