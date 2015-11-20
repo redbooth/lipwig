@@ -284,6 +284,33 @@ func TestClient_should_get_presence(t *testing.T) {
 	w1.Wait()
 }
 
+func TestClient_should_unsubscribe_on_close(t *testing.T) {
+	defer NewServer().Start().Stop()
+	foo := NewLoggedInClient("foo")
+	bar := NewLoggedInClient("bar")
+	defer bar.Close()
+
+	w := bar.expect(t, client.Event{
+		Name:    []byte(ssmp.SUBSCRIBE),
+		From:    []byte("foo"),
+		To:      []byte("chat"),
+		Payload: []byte{},
+	})
+
+	expect(t, ssmp.CodeOk, u(foo.Subscribe("chat")))
+	expect(t, ssmp.CodeOk, u(bar.SubscribeWithPresence("chat")))
+
+	w.Wait()
+
+	w = bar.expect(t, client.Event{
+		Name: []byte(ssmp.UNSUBSCRIBE),
+		From: []byte("foo"),
+		To:   []byte("chat"),
+	})
+	foo.Close()
+	w.Wait()
+}
+
 func TestClient_should_broadcast(t *testing.T) {
 	defer NewServer().Start().Stop()
 	foo := NewLoggedInClient("foo")
