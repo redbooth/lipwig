@@ -103,11 +103,27 @@ func (s *Server) Stop() {
 func (s *Server) DumpStats(w io.Writer) {
 	io.WriteString(w, "------- server stats -------\n")
 	s.connection.Lock()
-	fmt.Fprintf(w, "%5d named connections\n", len(s.connections))
 	fmt.Fprintf(w, "%5d anonymous connections\n", len(s.anonymous))
+	for c := range s.anonymous {
+		fmt.Fprintf(w, "\t%p %v\n", c, c.c.RemoteAddr())
+	}
+	fmt.Fprintf(w, "%5d named connections\n", len(s.connections))
+	for u, c := range s.connections {
+		fmt.Fprintf(w, "\t%p %v %s %s\n", c, c.c.RemoteAddr(), u, c.User)
+		// FIXME: synchronization to prevent race with SUB/UNSUB handling
+		for n, t := range c.sub {
+			fmt.Fprintf(w, "\t\t%s %p\n", n, t)
+		}
+	}
 	s.connection.Unlock()
 	s.topic.Lock()
 	fmt.Fprintf(w, "%5d active topics\n", len(s.topics))
+	for n, t := range s.topics {
+		fmt.Fprintf(w, "\t%p %s %s\n", t, n, t.Name)
+		for c, p := range t.c {
+			fmt.Fprintf(w, "\t\t%p %v %s\n", c, p, c.User)
+		}
+	}
 	s.topic.Unlock()
 	io.WriteString(w, "----------------------------\n")
 }
