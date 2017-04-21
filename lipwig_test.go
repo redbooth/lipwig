@@ -248,6 +248,35 @@ func TestClient_should_multicast(t *testing.T) {
 	w.Wait()
 }
 
+func TestClient_should_multicast_anonymous(t *testing.T) {
+	defer NewServer().Start().Stop()
+	foo := NewLoggedInClient(ssmp.Anonymous)
+	defer foo.Close()
+	bar := NewLoggedInClient("bar")
+	defer bar.Close()
+
+	expect(t, ssmp.CodeOk, u(foo.Subscribe("chat")))
+	expect(t, ssmp.CodeOk, u(bar.Subscribe("chat")))
+
+	w := bar.expect(t, client.Event{
+		Name:    []byte(ssmp.MCAST),
+		From:    []byte(ssmp.Anonymous),
+		To:      []byte("chat"),
+		Payload: []byte("hello"),
+	})
+	expect(t, ssmp.CodeOk, u(foo.Mcast("chat", "hello")))
+	w.Wait()
+
+	w = foo.expect(t, client.Event{
+		Name:    []byte(ssmp.MCAST),
+		From:    []byte("bar"),
+		To:      []byte("chat"),
+		Payload: []byte("world"),
+	})
+	expect(t, ssmp.CodeOk, u(bar.Mcast("chat", "world")))
+	w.Wait()
+}
+
 func TestClient_should_get_presence(t *testing.T) {
 	defer NewServer().Start().Stop()
 	foo := NewLoggedInClient("foo")
@@ -284,10 +313,65 @@ func TestClient_should_get_presence(t *testing.T) {
 	w1.Wait()
 }
 
+func TestClient_should_get_presence_anonymous(t *testing.T) {
+	defer NewServer().Start().Stop()
+	foo := NewLoggedInClient("foo")
+	defer foo.Close()
+	bar := NewLoggedInClient(ssmp.Anonymous)
+	defer bar.Close()
+
+	w := bar.expect(t, client.Event{
+		Name:    []byte(ssmp.SUBSCRIBE),
+		From:    []byte("foo"),
+		To:      []byte("chat"),
+		Payload: []byte("PRESENCE"),
+	})
+
+	expect(t, ssmp.CodeOk, u(foo.SubscribeWithPresence("chat")))
+	expect(t, ssmp.CodeOk, u(bar.SubscribeWithPresence("chat")))
+
+	w.Wait()
+
+	w = bar.expect(t, client.Event{
+		Name: []byte(ssmp.UNSUBSCRIBE),
+		From: []byte("foo"),
+		To:   []byte("chat"),
+	})
+	expect(t, ssmp.CodeOk, u(foo.Unsubscribe("chat")))
+	w.Wait()
+}
+
 func TestClient_should_unsubscribe_on_close(t *testing.T) {
 	defer NewServer().Start().Stop()
 	foo := NewLoggedInClient("foo")
 	bar := NewLoggedInClient("bar")
+	defer bar.Close()
+
+	w := bar.expect(t, client.Event{
+		Name:    []byte(ssmp.SUBSCRIBE),
+		From:    []byte("foo"),
+		To:      []byte("chat"),
+		Payload: []byte{},
+	})
+
+	expect(t, ssmp.CodeOk, u(foo.Subscribe("chat")))
+	expect(t, ssmp.CodeOk, u(bar.SubscribeWithPresence("chat")))
+
+	w.Wait()
+
+	w = bar.expect(t, client.Event{
+		Name: []byte(ssmp.UNSUBSCRIBE),
+		From: []byte("foo"),
+		To:   []byte("chat"),
+	})
+	foo.Close()
+	w.Wait()
+}
+
+func TestClient_should_unsubscribe_on_close_anonymous(t *testing.T) {
+	defer NewServer().Start().Stop()
+	foo := NewLoggedInClient("foo")
+	bar := NewLoggedInClient(ssmp.Anonymous)
 	defer bar.Close()
 
 	w := bar.expect(t, client.Event{

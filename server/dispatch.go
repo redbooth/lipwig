@@ -56,7 +56,7 @@ func (d *Dispatcher) Dispatch(c *Connection, verb []byte) bool {
 		if _, err := c.r.DecodeCompat(); err != nil {
 			return false
 		}
-		fmt.Println("unsupported command:", string(verb))
+		fmt.Println("unsupported command:", verb)
 		c.Write(respNotImplemented)
 		return true
 	}
@@ -121,10 +121,6 @@ func h(h handlerFunc, f int32) handler {
 
 func onSubscribe(c *Connection, n, option, s []byte, d *Dispatcher) {
 	from := c.User
-	if from == ssmp.Anonymous {
-		c.Write(respNotAllowed)
-		return
-	}
 	presence := ssmp.Equal(option, ssmp.PRESENCE)
 	if len(option) > 0 && !presence {
 		fmt.Println("unrecognized option:", option)
@@ -140,6 +136,13 @@ func onSubscribe(c *Connection, n, option, s []byte, d *Dispatcher) {
 
 	c.Subscribe(t)
 	c.Write(respOk)
+
+	// TODO: keep track of count of PRESENCE-tagged subscribers
+	// to avoid walk in more cases
+	if from == ssmp.Anonymous && !presence {
+		// no need to walk subscribers
+		return
+	}
 
 	// notify existing subscribers of new sub
 	buf := d.buffer()
@@ -163,7 +166,7 @@ func onSubscribe(c *Connection, n, option, s []byte, d *Dispatcher) {
 		if wantsPresence {
 			cc.Write(event)
 		}
-		if presence {
+		if presence && cc.User != ssmp.Anonymous {
 			buf2.WriteString(respEvent)
 			buf2.WriteString(cc.User)
 			buf2.Write(batch)
@@ -189,29 +192,27 @@ func onSubscribe(c *Connection, n, option, s []byte, d *Dispatcher) {
 
 func onUnsubscribe(c *Connection, n, _, s []byte, d *Dispatcher) {
 	from := c.User
-	if from == ssmp.Anonymous {
-		c.Write(respNotAllowed)
-		return
-	}
 	t := d.topics.GetTopic(n)
 	if t == nil || !t.Unsubscribe(c) {
 		c.Write(respNotFound)
 		return
 	}
 	c.Unsubscribe(n)
-	buf := d.buffer()
-	buf.Grow(5 + len(from) + len(s))
-	buf.WriteString(respEvent)
-	buf.WriteString(from)
-	buf.WriteByte(' ')
-	buf.Write(s)
-	event := buf.Bytes()
-	t.ForAll(func(cc *Connection, wantsPresence bool) {
-		if wantsPresence {
-			cc.Write(event)
-		}
-	})
-	d.release(buf)
+	if from != ssmp.Anonymous {
+		buf := d.buffer()
+		buf.Grow(5 + len(from) + len(s))
+		buf.WriteString(respEvent)
+		buf.WriteString(from)
+		buf.WriteByte(' ')
+		buf.Write(s)
+		event := buf.Bytes()
+		t.ForAll(func(cc *Connection, wantsPresence bool) {
+			if wantsPresence {
+				cc.Write(event)
+			}
+		})
+		d.release(buf)
+	}
 	c.Write(respOk)
 }
 
