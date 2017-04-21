@@ -117,6 +117,7 @@ var ping []byte = []byte(respEvent + ". " + ssmp.PING + "\n")
 
 func (c *Connection) readLoop(d *Dispatcher) {
 	defer d.RemoveConnection(c)
+	defer c.Cleanup()
 	idle := false
 	for !c.isClosed() {
 		c.c.SetReadDeadline(time.Now().Add(30 * time.Second))
@@ -178,6 +179,10 @@ func (c *Connection) Close() {
 		return
 	}
 	c.c.Close()
+}
+
+// Cleanup logic, called from the read goroutine to avoid races
+func (c *Connection) Cleanup() {
 	if len(c.sub) == 0 {
 		return
 	}
@@ -198,4 +203,5 @@ func (c *Connection) Close() {
 			}
 		})
 	}
+	c.sub = nil
 }
