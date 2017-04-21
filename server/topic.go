@@ -64,6 +64,8 @@ func (t *Topic) ForAll(v TopicVisitor) {
 	t.l.RLock()
 	defer t.l.RUnlock()
 	for c, presence := range t.c {
-		v(c, presence)
+		if !c.isClosed() {
+			v(c, presence)
+		}
 	}
 }
