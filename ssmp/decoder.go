@@ -122,7 +122,7 @@ func (d *Decoder) DecodeVerb() ([]byte, error) {
 		return nil, ErrInvalidMessage
 	}
 	n := 0
-	for n < MaxVerbLength {
+	for n <= MaxVerbLength {
 		if err := d.ensureBuffered(n + 1); err != nil {
 			return nil, err
 		}
@@ -146,7 +146,7 @@ func (d *Decoder) DecodeId() ([]byte, error) {
 		return nil, ErrInvalidMessage
 	}
 	n := 0
-	for n < MaxIdentifierLength {
+	for n <= MaxIdentifierLength {
 		if err := d.ensureBuffered(n + 1); err != nil {
 			return nil, err
 		}

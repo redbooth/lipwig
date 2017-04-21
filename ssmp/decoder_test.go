@@ -95,6 +95,12 @@ func TestDecoder_should_decode_verb(t *testing.T) {
 	assert.False(t, r.AtEnd())
 }
 
+func TestDecoder_should_decode_verb_longest(t *testing.T) {
+	r := newReader(io.EOF, "ABCDEFGHIJKLMNOP ")
+	expectData(t, "ABCDEFGHIJKLMNOP", u(r.DecodeVerb()))
+	assert.False(t, r.AtEnd())
+}
+
 func TestDecoder_should_decode_verb_atend(t *testing.T) {
 	r := newReader(io.EOF, "VERB\n")
 	expectData(t, "VERB", u(r.DecodeVerb()))
@@ -164,6 +170,12 @@ func TestDecoder_should_reject_code_long(t *testing.T) {
 func TestDecoder_should_decode_id(t *testing.T) {
 	r := newReader(io.EOF, "UPPER.lower@123:/_-+=~ ....")
 	expectData(t, "UPPER.lower@123:/_-+=~", u(r.DecodeId()))
+	assert.False(t, r.AtEnd())
+}
+
+func TestDecoder_should_decode_id_longest(t *testing.T) {
+	r := newReader(io.EOF, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+/ ....")
+	expectData(t, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+/", u(r.DecodeId()))
 	assert.False(t, r.AtEnd())
 }
 
